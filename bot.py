@@ -25,59 +25,85 @@ def ema(prices, period):
         val = p * k + val * (1 - k)
     return val
 
-# ===== DATA =====
+# ===== FETCH DATA (FIXED) =====
 def get_prices():
     try:
         url = "https://query1.finance.yahoo.com/v8/finance/chart/^NSEI?interval=5m&range=1d"
-        data = requests.get(url, timeout=10).json()
+
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+
+        r = requests.get(url, headers=headers, timeout=10)
+
+        if r.status_code != 200:
+            print("API error:", r.status_code)
+            return []
+
+        data = r.json()
+
+        if not data.get("chart") or not data["chart"].get("result"):
+            print("Invalid data received")
+            return []
+
         closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-        return [c for c in closes if c]
+
+        return [c for c in closes if c is not None]
+
     except Exception as e:
         print("Data error:", e)
         return []
 
+# ===== SIGNAL MEMORY =====
 last_signal = None
 
+# ===== CHECK SIGNAL =====
 def check():
     global last_signal
 
     prices = get_prices()
+
     if len(prices) < 30:
+        print("Not enough data")
         return
 
-    e9_prev = ema(prices[-21:-1], 9)
-    e15_prev = ema(prices[-21:-1], 15)
+    ema9_prev = ema(prices[-21:-1], 9)
+    ema15_prev = ema(prices[-21:-1], 15)
 
-    e9_now = ema(prices[-20:], 9)
-    e15_now = ema(prices[-20:], 15)
+    ema9_now = ema(prices[-20:], 9)
+    ema15_now = ema(prices[-20:], 15)
 
-    if not all([e9_prev, e15_prev, e9_now, e15_now]):
+    if not all([ema9_prev, ema15_prev, ema9_now, ema15_now]):
         return
 
-    if e9_prev < e15_prev and e9_now > e15_now:
+    # BUY
+    if ema9_prev < ema15_prev and ema9_now > ema15_now:
         if last_signal != "BUY":
             send_msg("NIFTY BUY 🔼")
+            print("BUY signal")
             last_signal = "BUY"
 
-    elif e9_prev > e15_prev and e9_now < e15_now:
+    # SELL
+    elif ema9_prev > ema15_prev and ema9_now < ema15_now:
         if last_signal != "SELL":
             send_msg("NIFTY SELL 🔽")
+            print("SELL signal")
             last_signal = "SELL"
 
 # ===== BOT LOOP =====
 def run_bot():
     print("Bot Started...")
-    send_msg("Bot running ✅")
+    send_msg("Bot running on cloud ✅")
 
     while True:
         try:
             check()
-            time.sleep(300)
+            time.sleep(300)  # 5 minutes
         except Exception as e:
             print("Error:", e)
             time.sleep(60)
 
-# ===== FLASK APP =====
+# ===== FLASK SERVER =====
 app = Flask(__name__)
 
 @app.route("/")
