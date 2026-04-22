@@ -7,7 +7,10 @@ from flask import Flask
 BOT_TOKEN = "8285229070:AAGZQnCbjULqMUsZkmNMBSG9NCh3WlI2bNo"
 CHAT_ID = "1207682165"
 
-# ===== SEND MESSAGE =====
+# ===== YOUR APP URL (IMPORTANT) =====
+APP_URL = "https://simplebot-production-11a0.up.railway.app"
+
+# ===== SEND TELEGRAM MESSAGE =====
 def send_msg(text):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -15,7 +18,7 @@ def send_msg(text):
     except Exception as e:
         print("Telegram error:", e)
 
-# ===== EMA =====
+# ===== EMA CALCULATION =====
 def ema(prices, period):
     if len(prices) < period:
         return None
@@ -43,11 +46,10 @@ def get_prices():
         data = r.json()
 
         if not data.get("chart") or not data["chart"].get("result"):
-            print("Invalid data received")
+            print("Invalid data")
             return []
 
         closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-
         return [c for c in closes if c is not None]
 
     except Exception as e:
@@ -98,7 +100,16 @@ def run_bot():
     while True:
         try:
             check()
-            time.sleep(300)  # 5 minutes
+
+            # 🔥 SELF PING (keeps Railway alive)
+            try:
+                requests.get(APP_URL, timeout=5)
+                print("Self ping success")
+            except:
+                print("Self ping failed")
+
+            time.sleep(300)  # every 5 mins
+
         except Exception as e:
             print("Error:", e)
             time.sleep(60)
