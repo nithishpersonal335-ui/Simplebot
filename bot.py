@@ -65,7 +65,7 @@ def check():
 
     prices = get_prices()
 
-    if len(prices) < 30:
+    if len(prices) < 1:
         print("Not enough data")
         return
 
