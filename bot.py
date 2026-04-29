@@ -1,26 +1,25 @@
 import requests
-import time
-import threading
 import pandas as pd
-import yfinance as yf
-from flask import Flask
+import time
 from datetime import datetime
 import pytz
+from flask import Flask
+import threading
 
-# ===== CONFIG =====
-BOT_TOKEN = "YOUR_BOT_TOKEN"
-CHAT_ID = "YOUR_CHAT_ID"
-
-SYMBOL = "^NSEI"   # NIFTY (change if needed)
+# ================= CONFIG =================
+BOT_TOKEN = "8285229070:AAGZQnCbjULqMUsZkmNMBSG9NCh3WlI2bNo"
+CHAT_ID = "1207682165"
+SYMBOL = "^NSEI"
+# =========================================
 
 app = Flask(__name__)
 
-last_signal = None
+last_signal_time = None
 
 # ===== TELEGRAM =====
 def send_message(text):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         requests.post(url, data={"chat_id": CHAT_ID, "text": text})
         print("Sent:", text)
     except Exception as e:
@@ -28,57 +27,81 @@ def send_message(text):
 
 # ===== MARKET TIME =====
 def is_market_open():
-    india = pytz.timezone('Asia/Kolkata')
-    now = datetime.now(india)
+    tz = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(tz)
 
     start = now.replace(hour=9, minute=15, second=0, microsecond=0)
     end = now.replace(hour=15, minute=30, second=0, microsecond=0)
 
     return start <= now <= end
 
+# ===== FETCH DATA =====
+def get_data():
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{SYMBOL}?interval=5m&range=1d"
+    res = requests.get(url).json()
+
+    closes = res['chart']['result'][0]['indicators']['quote'][0]['close']
+    df = pd.DataFrame(closes, columns=["close"])
+    df.dropna(inplace=True)
+
+    return df
+
 # ===== SIGNAL LOGIC =====
 def check_signal():
-    global last_signal
+    global last_signal_time
 
-    data = yf.download(SYMBOL, interval="5m", period="1d")
+    df = get_data()
 
-    if data is None or len(data) < 20:
+    if len(df) < 20:
         return
 
-    # EMA
-    data["EMA9"] = data["Close"].ewm(span=9).mean()
-    data["EMA15"] = data["Close"].ewm(span=15).mean()
+    df["ema9"] = df["close"].ewm(span=9).mean()
+    df["ema15"] = df["close"].ewm(span=15).mean()
 
-    # USE CLOSED CANDLES ONLY
-    last = data.iloc[-2]
-    prev = data.iloc[-3]
+    # CLOSED candles
+    prev = df.iloc[-3]
+    curr = df.iloc[-2]
+
+    candle_id = len(df)
+
+    if last_signal_time == candle_id:
+        return
 
     signal = None
 
-    # BUY
-    if prev["EMA9"] < prev["EMA15"] and last["EMA9"] > last["EMA15"]:
+    if prev["ema9"] < prev["ema15"] and curr["ema9"] > curr["ema15"]:
         signal = "BUY 📈"
 
-    # SELL
-    elif prev["EMA9"] > prev["EMA15"] and last["EMA9"] < last["EMA15"]:
+    elif prev["ema9"] > prev["ema15"] and curr["ema9"] < curr["ema15"]:
         signal = "SELL 📉"
 
-    # SEND ONLY NEW SIGNAL
-    if signal and signal != last_signal:
-        last_signal = signal
-        send_message(f"NIFTY {signal} (5m EMA 9/15 crossover)")
+    if signal:
+        last_signal_time = candle_id
+        send_message(f"NIFTY {signal}")
 
-# ===== LOOP =====
+# ===== WAIT FOR NEXT 5 MIN CANDLE =====
+def wait_for_next_candle():
+    tz = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(tz)
+
+    seconds = (5 - now.minute % 5) * 60 - now.second
+    if seconds <= 0:
+        seconds = 300
+
+    print(f"Waiting {seconds} sec...")
+    time.sleep(seconds + 2)
+
+# ===== BOT LOOP =====
 def run_bot():
     send_message("Bot Started ✅")
 
     while True:
         if is_market_open():
+            wait_for_next_candle()
             check_signal()
         else:
             print("Market Closed")
-
-        time.sleep(60)   # check every 1 min
+            time.sleep(60)
 
 # ===== FLASK =====
 @app.route('/')
