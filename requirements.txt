@@ -1,5 +1,4 @@
 requests
-flask
 pandas
-yfinance
 pytz
+flask
